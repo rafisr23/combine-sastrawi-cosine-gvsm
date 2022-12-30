@@ -7,10 +7,12 @@ import string  # Menghapus karakter tanda baca.
 import matplotlib.pyplot as plt  # Menggambarkan Frekuensi Kemunculan
 import docx  # Membaca File docx
 # from docx2pdf import convert  # Meng-convert docx ke pdf
+import numpy as np
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory  # Stemming Sastrawi
 from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory, StopWordRemover, ArrayDictionary  # Stopword Sastrawi
 import os  # Membaca file di dalam folder
 from sklearn.metrics.pairwise import cosine_similarity
+import PyPDF2
 
 # library pyqt5 untuk GUI
 from PyQt5 import QtCore, QtWidgets
@@ -61,49 +63,6 @@ class ShowGUI(QMainWindow):
                 kalimat += page.get_text()  # Memasukkan Kata ke variabel Kalimat
         return kalimat
 
-    # Proses Stemming
-    def getStemming(self, kalimat):
-        # Merubah format teks menjadi format huruf kecil semua (lowercase).
-        lower_case = kalimat.lower()
-
-        # Menghapus karakter angka.
-        remove_number = re.sub(r"\d+", "", lower_case)
-
-        # Menghapus karakter tanda baca.
-        remove_punctuation = remove_number.translate(str.maketrans("", "", string.punctuation))
-
-        # Menghapus karakter kosong.
-        removing_whitespace = remove_punctuation.strip()
-
-        # Menggunakan library NLTK untuk memisahkan kata dalam sebuah kalimat.
-        tokens = nltk.tokenize.word_tokenize(removing_whitespace)
-
-        hasil_tokens = ''
-        for x in tokens:
-            hasil_tokens += ' ' + x  # Memasukkan kata yang sudah dipisah (list), disatukan kembali menjadi string
-
-        # Menghapus kata Stopword - Sastrawi
-        stop_factory = StopWordRemoverFactory().get_stop_words()  # load default stopword
-        more_stopword = ['vol', 'volume', 'issn', 'php', 'mysql', 'gunadarma']  # menambahkan stopword
-
-        data = stop_factory + more_stopword  # menggabungkan stopword
-
-        dictionary = ArrayDictionary(data)
-        str_stopword = StopWordRemover(dictionary)
-        hasil_stopword = nltk.tokenize.word_tokenize(str_stopword.remove(hasil_tokens))
-
-        hasil_stopword_fix = ''
-        for x in hasil_stopword:
-            hasil_stopword_fix += ' ' + x  # Memasukkan kata yang sudah dipisah (list), disatukan kembali menjadi string
-
-        # Stemming Sastrawi
-        factory = StemmerFactory()
-        stemmer = factory.create_stemmer()
-
-        hasil = stemmer.stem(hasil_stopword_fix)
-
-        return hasil
-
     # Membuat Value String Menjadi List
     def convert(self, value):
         li = list(value.split(" "))
@@ -133,133 +92,105 @@ class ShowGUI(QMainWindow):
 
         return hasil_fix
 
-    # Membuat Term-Document Matrix
-    def term_document_matrix(self, list_of_documents):
-        all_terms = []
-        for doc in list_of_documents:
-            all_terms += doc
-        # Menghapus kembar
-        terms = set(all_terms)
-        # print("Terms ->" + str(terms))
+    def retrieve_relevant_documents(self, folder_path, query):
+        # Create a stemmer object
+        factory = StemmerFactory()
+        stemmer = factory.create_stemmer()
 
-        # Membuat Dictionaries
-        dict_list = []
-        for term in terms:
-            temp = []
-            for doc in list_of_documents:
-                if term in doc:
-                    temp.append(1)
-                else:
-                    temp.append(0)
-            dict_list.append(temp)
-        # print("dict list ->" + str(dict_list))
-        return terms, dict_list
+        # Read the documents from the specified folder
+        documents = []
+        filenames = []
+        for filename in os.listdir(folder_path):
+            if filename.endswith(".pdf"):
+                filenames.append(filename)
+                with open(os.path.join(folder_path, filename), "rb") as f:
+                    pdf_reader = PyPDF2.PdfFileReader(f)
+                    num_pages = pdf_reader.getNumPages()
+                    document = ""
+                    for page_num in range(num_pages):
+                        page = pdf_reader.getPage(page_num)
+                        document += page.extractText()
+                    documents.append(document)
 
-    # Memproses Query
-    def proses_query(self, query):
-        query_stemming = self.getStemming(query)
+            elif filename.endswith(".docx"):
+                filenames.append(filename)
+                doc = docx.Document(os.path.join(folder_path, filename))
+                document = ""
+                for paragraph in doc.paragraphs:
+                    document += paragraph.text
+                documents.append(document)
 
-        return self.convert(query_stemming)
+        # Preprocess the documents by stemming the words
+        processed_documents = []
+        for document in documents:
+            processed_document = " ".join([stemmer.stem(word) for word in document.split()])
+            processed_documents.append(processed_document)
 
-    # Membuat Vector Query
-    def vector_query(self, query, terms):
-        temp = []
-        for term in terms:
-            if term in query:
-                temp.append(1)
-            else:
-                temp.append(0)
+        # Create a vocabulary of all the unique terms in the documents
+        vocab = set()
+        for document in processed_documents:
+            for word in document.split():
+                vocab.add(word)
 
-        return temp
+        vocab = list(vocab)
 
-    # Menghitung Similarity
-    def similarity(self, vector_query, dict_list):
-        # Hitung cosine similarity antara vector query dan setiap vektor dalam dict_list
-        sim_scores = cosine_similarity([vector_query], dict_list)[0]
+        # Create a matrix of document vectors, with each row representing a document and each column representing a term
+        matrix = np.zeros((len(processed_documents), len(vocab)))
 
-        return sim_scores
+        # Calculate the term frequency of each term in each document
+        for i, document in enumerate(processed_documents):
+            for j, term in enumerate(vocab):
+                matrix[i, j] = document.split().count(term)
 
-    # Menampilkan Hasil Akhir
-    def show_result(self, list_of_documents, results):
-        for i in range(len(results)):
-            if results[i] > 0:
-                print("Document ke-" + str(i+1) + " memiliki similarity sebesar: " + str(results[i]))
-            else:
-                print("Document ke-" + str(i+1) + " tidak memiliki similarity.")
+        # Perform term weighting using the GVSM
+        matrix = matrix / np.sqrt(np.sum(matrix ** 2, axis=1, keepdims=True))
 
-    # Main Program
+        # Preprocess the query by stemming the words
+        processed_query = " ".join([stemmer.stem(word) for word in query.split()])
+
+        # Create a query vector and perform term weighting using the GVSM
+        query_vector = np.zeros(len(vocab))
+        for j, term in enumerate(vocab):
+            query_vector[j] = processed_query.split().count(term)
+        query_vector = query_vector / np.sqrt(np.sum(query_vector ** 2))
+
+        # Calculate the cosine similarity between the query vector and each document vector
+        similarities = []
+        for i, document_vector in enumerate(matrix):
+            dot_product = np.dot(query_vector, document_vector)
+            query_length = np.sqrt(np.dot(query_vector, query_vector))
+            doc_length = np.sqrt(np.dot(document_vector, document_vector))
+            similarity = dot_product / (query_length * doc_length)
+            similarities.append(similarity)
+
+        # Rank the documents by similarity and retrieve the most relevant ones
+        ranked_documents = sorted(zip(similarities, documents, filenames), reverse=True)
+        return ranked_documents
+        # Rank the documents by similarity and retrieve the most relevant ones
+        # ranked_documents = sorted(zip(similarities, documents), reverse=True)
+        # filenames = [document.replace(folder_path + "/", "") for _, document in ranked_documents]
+        # return filenames[:2]
+
+    # Retrieve the most relevant documents
     def main(self):
-        # Membaca file di dalam folder
-        path = self.file
-        files = []
-        for r, d, f in os.walk(path):
-            for file in f:
-                if '.docx' in file:
-                    files.append(os.path.join(r, file))
-                elif '.pdf' in file:
-                    files.append(os.path.join(r, file))
+        # Define the folder path containing the documents
+        folder_path = self.file
 
-        # Memproses File
-        list_of_documents = []
-        for doc in files:
-            list_of_documents.append(self.proses(doc))
-
-        # Membuat Term-Document Matrix
-        terms, dict_list = self.term_document_matrix(list_of_documents)
-
-        # Memasukkan Query
+        # Define the query
         query = self.query
+        most_relevant_filenames = self.retrieve_relevant_documents(folder_path, query)
 
-        # Memproses Query
-        query = self.proses_query(query)
-
-        # Membuat Vector Query
-        vector_query_fix = self.vector_query(query, terms)
-
-        # Menghitung Similarity
-        results = self.similarity(vector_query_fix, dict_list)
-
-        # Menampilkan Hasil Akhir
-        self.show_result(list_of_documents, results)
+        print("Most relevant documents:")
+        for similarity, document, filename in most_relevant_filenames:
+            # filename = document.replace(folder_path + "/", "")
+            similarity_percentage = round(similarity * 100)
+            similarity = similarity
+            print(f"Document: {filename} (similarity: {similarity}) ({similarity_percentage}%)")
+        # for filename in most_relevant_filenames:
+        #     print(f"Filename: {filename}")
 
 app = QtWidgets.QApplication(sys.argv)
 window = ShowGUI()
 window.setWindowTitle('Information Retrieval')
 window.show()
 sys.exit(app.exec_())
-
-#main()
-
-
-# # Jaccard - Similarity
-# def measure(a,b):
-#     doc1 = set(a)
-#     doc2 = set(b)
-#     intersection = doc1.intersection(doc2)
-#     union = doc1.union(doc2)
-#     hasil = float(len(intersection))/len(union)
-#     print('Hasil Similarity menggunakan Jaccard: ' + str(hasil))
-#     # print(hasil)
-#     # print('\n')
-#
-#     return hasil
-#     # return len(union)
-
-# Main Proses
-# query = input(str('Masukkan Query Yang Diinginkan : '))
-# stemming_query = getStemming(query)
-# list_query = convert(stemming_query)
-# print('Query -> ' + str(list_query))
-#
-# # Main Proses - Read File from Directory
-# path = 'D:\Materi Kuliah\Semester 5\IFB-307 DATA MINING DAN INFORMATION RETRIEVAL\Code\Jaccard Similarity\similarity index\daftar-file'
-# files = os.listdir(path)
-# fileAfterProcess = []
-# checkFile = []
-# for index, file in enumerate(files):
-#     print('\n' + file)
-#     fileAfterProcess.append(proses(path + "/" + file))
-#     # checkFile.append(measure(list_query, fileAfterProcess[index]))
-#
-# print('\nUrutan Hasil Similarity: ' + str(sorted(checkFile, reverse=True)))
-# print('*semakin mendekati 1, semakin baik hasil similarity-nya')
