@@ -21,19 +21,28 @@ from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 from PyQt5.uic import loadUi
 
+
 class ShowGUI(QMainWindow):
     def __init__(self):
         super(ShowGUI, self).__init__()
         loadUi('gui.ui', self)
         self.file = ""
         self.query = ""
+        self.term_freq = {}
         self.actionOpen.triggered.connect(self.openClicked)
-        self.buttonGvsm.clicked.connect(self.main)
         self.buttonQuery.clicked.connect(self.insertQuery)
+        self.buttonSearch.clicked.connect(self.showTermFreq)
+        self.msg = QMessageBox()
+        self.msg.setIcon(QMessageBox.Information)
+        self.msg.setStandardButtons(QMessageBox.Ok)
+        self.msg.setMinimumHeight(100)
+        self.msg.setMinimumWidth(100)
+        self.msg.setStyleSheet("QLabel{min-width: 200px; min-height: 200px;}")
 
     # Get Dir
     def openClicked(self):
-        self.file = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        self.file = str(QFileDialog.getExistingDirectory(
+            self, "Select Directory"))
         self.pathLabel.setText(str(self.file))
         count = 0
         # Iterate directory
@@ -46,51 +55,25 @@ class ShowGUI(QMainWindow):
     def insertQuery(self):
         self.query = self.queryLabel.toPlainText()
         print(self.query)
-
-    # Input File - DOCX
-    def getDOCX(self, filename):
-        doc = docx.Document(filename)
-        fullText = []
-        for para in doc.paragraphs:
-            fullText.append(para.text)
-        return '\n'.join(fullText)
-
-    # Input File - PDF
-    def getPDF(self, filename):
-        with fitz.open(filename) as doc:  # Membuka File PDF
-            kalimat = ""
-            for page in doc:
-                kalimat += page.get_text()  # Memasukkan Kata ke variabel Kalimat
-        return kalimat
-
-    # Membuat Value String Menjadi List
-    def convert(self, value):
-        li = list(value.split(" "))
-        return li
-
-    # Memproses File Inputan
-    def proses(self, file):
-        doc = file
-        if doc.endswith('.pdf'):
-            hasil = self.getPDF(doc)
-            hasil_stemming = self.getStemming(hasil)
-            hasil_fix = self.convert(hasil_stemming)
-            kemunculan = nltk.FreqDist(self.convert(hasil_stemming))
-            # print('\nStemming hasil -> ' + str(doc) + ':')
-            # print(kemunculan.most_common())
-
-        elif doc.endswith('.docx'):
-            hasil = self.getDOCX(doc)
-            hasil_stemming = self.getStemming(hasil)
-            hasil_fix = self.convert(hasil_stemming)
-            kemunculan = nltk.FreqDist(self.convert(hasil_stemming))
-            # print('\nStemming hasil -> ' + str(doc) + ':')
-            # print(kemunculan.most_common())
-
+        if self.query == "":
+            self.msg.about(self, "Information", "Query is empty")
         else:
-            print('Harap Masukkan File PDF atau DOCX')
+            if self.file == "":
+                self.msg.about(self, "Information", "File is empty")
+            else:
+                self.main()
 
-        return hasil_fix
+    def showTermFreq(self):
+        
+        term = self.termLabel.toPlainText()
+        if self.term_freq != {}:
+            if term in self.term_freq:
+                # self.termFreqLabel.setText(str(self.term_freq[term]))
+                self.msg.about(self, "Information", str(self.term_freq[term]))
+            else:
+                self.msg.about(self, "Information", "Term not found")
+        else:
+            self.termFreqLabel.setText("")
 
     def retrieve_relevant_documents(self, folder_path, query):
         # Create a stemmer object
@@ -123,7 +106,8 @@ class ShowGUI(QMainWindow):
         # Preprocess the documents by stemming the words
         processed_documents = []
         for document in documents:
-            processed_document = " ".join([stemmer.stem(word) for word in document.split()])
+            processed_document = " ".join(
+                [stemmer.stem(word) for word in document.split()])
             processed_documents.append(processed_document)
 
         # Create a vocabulary of all the unique terms in the documents
@@ -140,7 +124,16 @@ class ShowGUI(QMainWindow):
         # Calculate the term frequency of each term in each document
         for i, document in enumerate(processed_documents):
             for j, term in enumerate(vocab):
+                count = document.split().count(term)
                 matrix[i, j] = document.split().count(term)
+                if term in self.term_freq:
+                    self.term_freq[term] += count
+                else:
+                    self.term_freq[term] = count
+
+        # Print the term frequency of each term
+        for term, frequency in self.term_freq.items():
+            print(f"Term: {term}, Frequency: {frequency}")
 
         # Perform term weighting using the GVSM
         matrix = matrix / np.sqrt(np.sum(matrix ** 2, axis=1, keepdims=True))
@@ -152,6 +145,11 @@ class ShowGUI(QMainWindow):
         query_vector = np.zeros(len(vocab))
         for j, term in enumerate(vocab):
             query_vector[j] = processed_query.split().count(term)
+
+        # Replace nan values with 0
+        query_vector[np.isnan(query_vector)] = 0
+
+        np.seterr(invalid='ignore')
         query_vector = query_vector / np.sqrt(np.sum(query_vector ** 2))
 
         # Calculate the cosine similarity between the query vector and each document vector
@@ -164,12 +162,9 @@ class ShowGUI(QMainWindow):
             similarities.append(similarity)
 
         # Rank the documents by similarity and retrieve the most relevant ones
-        ranked_documents = sorted(zip(similarities, documents, filenames), reverse=True)
+        ranked_documents = sorted(
+            zip(similarities, documents, filenames), reverse=True)
         return ranked_documents
-        # Rank the documents by similarity and retrieve the most relevant ones
-        # ranked_documents = sorted(zip(similarities, documents), reverse=True)
-        # filenames = [document.replace(folder_path + "/", "") for _, document in ranked_documents]
-        # return filenames[:2]
 
     # Retrieve the most relevant documents
     def main(self):
@@ -178,16 +173,20 @@ class ShowGUI(QMainWindow):
 
         # Define the query
         query = self.query
-        most_relevant_filenames = self.retrieve_relevant_documents(folder_path, query)
+
+        most_relevant_filenames = self.retrieve_relevant_documents(
+            folder_path, query)
 
         print("Most relevant documents:")
+        self.resultLabel.clear()
         for similarity, document, filename in most_relevant_filenames:
-            # filename = document.replace(folder_path + "/", "")
+            # similarity = similarity.dropna()
+            if np.isnan(similarity):
+                similarity = 0
             similarity_percentage = round(similarity * 100)
             similarity = similarity
-            print(f"Document: {filename} (similarity: {similarity}) ({similarity_percentage}%)")
-        # for filename in most_relevant_filenames:
-        #     print(f"Filename: {filename}")
+            self.resultLabel.append(f"Document: {filename} (similarity: {similarity}) ({similarity_percentage}%)")
+
 
 app = QtWidgets.QApplication(sys.argv)
 window = ShowGUI()
