@@ -26,8 +26,14 @@ class ShowGUI(QMainWindow):
         self.file = ""
         self.query = ""
         self.actionOpen.triggered.connect(self.openClicked)
-        self.buttonGvsm.clicked.connect(self.main)
+        # self.buttonGvsm.clicked.connect(self.main)
         self.buttonQuery.clicked.connect(self.insertQuery)
+        self.msg = QMessageBox()
+        self.msg.setIcon(QMessageBox.Information)
+        self.msg.setStandardButtons(QMessageBox.Ok)
+        self.msg.setMinimumHeight(100)
+        self.msg.setMinimumWidth(100)
+        self.msg.setStyleSheet("QLabel{min-width: 200px; min-height: 200px;}")
 
     # Get Dir
     def openClicked(self):
@@ -44,6 +50,13 @@ class ShowGUI(QMainWindow):
     def insertQuery(self):
         self.query = self.queryLabel.toPlainText()
         print(self.query)
+        if self.query == "":
+            self.msg.about(self, "Information", "Query is empty")
+        else:
+            if self.file == "":
+                self.msg.about(self, "Information", "File is empty")
+            else:
+                self.main()
 
     # Input File - DOCX
     def getDOCX(self, filename):

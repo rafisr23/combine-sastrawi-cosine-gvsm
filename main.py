@@ -110,8 +110,26 @@ class ShowGUI(QMainWindow):
         # Preprocess the documents by stemming the words
         processed_documents = []
         for document in documents:
-            processed_document = " ".join(
-                [stemmer.stem(word) for word in document.split()])
+            # Remove all the special characters
+            # Converting to Lowercase
+            document = document.lower()
+            document = re.sub(r'\W', ' ', str(document))
+            # remove all single characters
+            document = re.sub(r'\s+[a-zA-Z]\s+', ' ', document)
+            # Remove single characters from the start
+            document = re.sub(r'\^[a-zA-Z]\s+', ' ', document)
+            # Substituting multiple spaces with single space
+            document = re.sub(r'\s+', ' ', document, flags=re.I)
+            # Removing prefixed 'b'
+            document = re.sub(r'^b\s+', '', document)
+            # add stopword
+            factory = StopWordRemoverFactory().get_stop_words()
+            more_stopword = ['dari', 'yang', 'ke', 'di', 'dengan', 'untuk', 'pada', 'dalam', 'dan', 'atau', 'ataupun', 'adalah', 'adanya', 'adapun', 'agak', 'agaknya', 'agar', 'akan', 'akankah', 'akhir', 'akhiri', 'akhirnya', 'aku', 'akulah', 'amat', 'amatlah', 'anda', 'andalah', 'antar', 'antara', 'antaranya', 'apa', 'apaan', 'apabila', 'apakah', 'apalagi', 'apatah', 'artinya', 'asal', 'asalkan', 'atas', 'atau', 'ataukah', 'ataupun', 'awal', 'awalnya', 'bagai', 'bagaikan', 'bagaimana', 'bagaimanakah', 'bagaimanapun', 'bagainamakah', 'bagi', 'bagian', 'bahkan', 'bahwa', 'bahwasanya', 'baik', 'bakal', 'bakalan', 'balik', 'banyak']
+            factory.extend(more_stopword)
+            stopword = StopWordRemoverFactory().create_stop_word_remover()
+            document = stopword.remove(document)
+            # Stemming
+            processed_document = " ".join([stemmer.stem(word) for word in document.split()])
             processed_documents.append(processed_document)
 
         # Create a vocabulary of all the unique terms in the documents
@@ -143,6 +161,17 @@ class ShowGUI(QMainWindow):
         matrix = matrix / np.sqrt(np.sum(matrix ** 2, axis=1, keepdims=True))
 
         # Preprocess the query by stemming the words
+        processed_query = processed_query.lower()
+        processed_query = re.sub(r'\W', ' ', str(query))
+        processed_query = re.sub(r'\s+[a-zA-Z]\s+', ' ', processed_query)
+        processed_query = re.sub(r'\^[a-zA-Z]\s+', ' ', processed_query)
+        processed_query = re.sub(r'\s+', ' ', processed_query, flags=re.I)
+        processed_query = re.sub(r'^b\s+', '', processed_query)
+        factory = StopWordRemoverFactory().get_stop_words()
+        more_stopword = ['dari', 'yang', 'ke', 'di', 'dengan', 'untuk', 'pada', 'dalam', 'dan', 'atau', 'ataupun', 'adalah', 'adanya', 'adapun', 'agak', 'agaknya', 'agar', 'akan', 'akankah', 'akhir', 'akhiri', 'akhirnya', 'aku', 'akulah', 'amat', 'amatlah', 'anda', 'andalah', 'antar', 'antara', 'antaranya', 'apa', 'apaan', 'apabila', 'apakah', 'apalagi', 'apatah', 'artinya', 'asal', 'asalkan', 'atas', 'atau', 'ataukah', 'ataupun', 'awal', 'awalnya', 'bagai', 'bagaikan', 'bagaimana', 'bagaimanakah', 'bagaimanapun', 'bagainamakah', 'bagi', 'bagian', 'bahkan', 'bahwa', 'bahwasanya', 'baik', 'bakal', 'bakalan', 'balik', 'banyak']
+        factory.extend(more_stopword)
+        stopword = StopWordRemoverFactory().create_stop_word_remover()
+        processed_query = stopword.remove(processed_query)
         processed_query = " ".join([stemmer.stem(word) for word in query.split()])
 
         # Create a query vector and perform term weighting using the GVSM
