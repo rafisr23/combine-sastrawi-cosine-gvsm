@@ -49,7 +49,11 @@ class ShowGUI(QMainWindow):
         for path in os.listdir(self.file):
             # check if current path is a file
             if os.path.isfile(os.path.join(self.file, path)):
-                count += 1
+                # check if file is pdf or docx
+                if path.endswith(".pdf"):
+                    count += 1
+                elif path.endswith(".docx"):
+                    count += 1    
         self.totalFileLabel.setText(str(count))
 
     def insertQuery(self):
